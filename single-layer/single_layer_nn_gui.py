@@ -23,6 +23,9 @@ class NeuralNetworkGUI:
         self.learning_rate = 1
         self.bias = 1 # Bias input value
         
+        self.is_normalized = False
+        self.norm_params = {}
+        
         # UI Layout
         self.setup_ui()
         
@@ -72,6 +75,12 @@ class NeuralNetworkGUI:
         tk.Radiobutton(controls_frame, text="Class 1", variable=self.class_var, value=1).pack(anchor="w")
         tk.Radiobutton(controls_frame, text="Class 2", variable=self.class_var, value=2).pack(anchor="w")
         
+        tk.Label(controls_frame, text="").pack() # Spacer
+
+        # Normalize Checkbox
+        self.normalize_var = tk.BooleanVar()
+        tk.Checkbutton(controls_frame, text="Normalize Data", variable=self.normalize_var).pack(anchor="w")
+
         tk.Label(controls_frame, text="").pack() # Spacer
         
         # Weights Display
@@ -126,11 +135,13 @@ class NeuralNetworkGUI:
             self.canvas.create_oval(x-r, y-r, x+r, y+r, outline="red", fill="red")
 
     def initialize_randomly(self):
+        self.is_normalized = False
         self.weights = [random.uniform(-1, 1) for _ in range(3)]
         self.update_weights_display()
         self.draw_decision_boundary()
 
     def initialize_manually(self):
+        self.is_normalized = False
         try:
             w0 = simpledialog.askfloat("Input", "Enter w0 (bias):", parent=self.root)
             if w0 is None: return
@@ -154,24 +165,48 @@ class NeuralNetworkGUI:
         self.canvas.delete("boundary")
         
         w0, w1, w2 = self.weights
-        # Line eq: w1*x + w2*y + w0*bias = 0  (assuming bias input is 1)
-        # y = (-w1*x - w0) / w2
         
         if w2 == 0:
             if w1 == 0: return # No line
-            # x = -w0/w1 (Vertical line)
-            x_val = -w0/w1
+            
+            if self.is_normalized and self.norm_params:
+                # x_train = -w0*bias/w1
+                x_train = -w0 * self.bias / w1
+                # Convert back to screen coordinates
+                # x_train = 2*(x - x_min)/x_range - 1  =>  x = (x_train + 1)*x_range/2 + x_min
+                x_val = (x_train + 1) * self.norm_params['x_range'] / 2 + self.norm_params['x_min']
+            else:
+                # x = -w0*bias/w1 (Vertical line)
+                x_val = -w0 * self.bias / w1
+                
             sx1, sy1 = self.cartesian_to_screen(x_val, 10)
             sx2, sy2 = self.cartesian_to_screen(x_val, -10)
         else:
             # Calculate y for x = -10 and x = 10 (our logical bounds)
-            x1 = -10
-            y1 = (-w1 * x1 - w0) / w2
-            x2 = 10
-            y2 = (-w1 * x2 - w0) / w2
+            x1_bound, x2_bound = -10, 10
             
-            sx1, sy1 = self.cartesian_to_screen(x1, y1)
-            sx2, sy2 = self.cartesian_to_screen(x2, y2)
+            if self.is_normalized and self.norm_params:
+                # We need to find y for x1_bound and x2_bound
+                # First convert bounds to normalized space
+                x_min = self.norm_params['x_min']
+                x_range = self.norm_params['x_range']
+                y_min = self.norm_params['y_min']
+                y_range = self.norm_params['y_range']
+                
+                def get_y_screen(x_screen):
+                    x_train = 2 * (x_screen - x_min) / x_range - 1
+                    y_train = (-w1 * x_train - w0 * self.bias) / w2
+                    y_screen = (y_train + 1) * y_range / 2 + y_min
+                    return y_screen
+
+                y1 = get_y_screen(x1_bound)
+                y2 = get_y_screen(x2_bound)
+            else:
+                y1 = (-w1 * x1_bound - w0 * self.bias) / w2
+                y2 = (-w1 * x2_bound - w0 * self.bias) / w2
+            
+            sx1, sy1 = self.cartesian_to_screen(x1_bound, y1)
+            sx2, sy2 = self.cartesian_to_screen(x2_bound, y2)
             
         self.canvas.create_line(sx1, sy1, sx2, sy2, fill="blue", width=2, tags="boundary")
 
@@ -180,6 +215,10 @@ class NeuralNetworkGUI:
         
         max_epochs = 1000
         self.cycle_count = 0
+        
+        # Check normalization
+        self.is_normalized = self.normalize_var.get()
+        self.norm_params = {}
         
         # Map labels: Class 1 -> 1, Class 2 -> -1
         training_data = []
@@ -190,6 +229,25 @@ class NeuralNetworkGUI:
         if not training_data:
             messagebox.showwarning("Warning", "No data points to train!")
             return
+
+        if self.is_normalized:
+            xs = [d['x'] for d in training_data]
+            ys = [d['y'] for d in training_data]
+            x_min, x_max = min(xs), max(xs)
+            y_min, y_max = min(ys), max(ys)
+            
+            x_range = x_max - x_min if x_max != x_min else 1.0
+            y_range = y_max - y_min if y_max != y_min else 1.0
+            
+            self.norm_params = {
+                'x_min': x_min, 'x_range': x_range,
+                'y_min': y_min, 'y_range': y_range
+            }
+            
+            # Normalize to [-1, 1]
+            for d in training_data:
+                d['x'] = 2 * (d['x'] - x_min) / x_range - 1
+                d['y'] = 2 * (d['y'] - y_min) / y_range - 1
 
         for epoch in range(max_epochs):
             error_count = 0
@@ -227,6 +285,80 @@ class NeuralNetworkGUI:
 
     def train_continuous(self):
         print("Continuous training (Delta) selected")
+        
+        max_epochs = 1000
+        self.cycle_count = 0
+        
+        # Check normalization
+        self.is_normalized = self.normalize_var.get()
+        self.norm_params = {}
+        
+        # Map labels: Class 1 -> 1, Class 2 -> 0 (for Sigmoid)
+        training_data = []
+        for p in self.points:
+            target = 1 if p.label == 1 else 0
+            training_data.append({'x': p.x, 'y': p.y, 'target': target})
+            
+        if not training_data:
+            messagebox.showwarning("Warning", "No data points to train!")
+            return
+
+        if self.is_normalized:
+            xs = [d['x'] for d in training_data]
+            ys = [d['y'] for d in training_data]
+            x_min, x_max = min(xs), max(xs)
+            y_min, y_max = min(ys), max(ys)
+            
+            x_range = x_max - x_min if x_max != x_min else 1.0
+            y_range = y_max - y_min if y_max != y_min else 1.0
+            
+            self.norm_params = {
+                'x_min': x_min, 'x_range': x_range,
+                'y_min': y_min, 'y_range': y_range
+            }
+            
+            # Normalize to [-1, 1]
+            for d in training_data:
+                d['x'] = 2 * (d['x'] - x_min) / x_range - 1
+                d['y'] = 2 * (d['y'] - y_min) / y_range - 1
+
+        for epoch in range(max_epochs):
+            total_error = 0
+            for data in training_data:
+                # Calculate Net Input
+                net = self.weights[0] * self.bias + self.weights[1] * data['x'] + self.weights[2] * data['y']
+                
+                # Activation (Sigmoid)
+                try:
+                    output = 1 / (1 + math.exp(-net))
+                except OverflowError:
+                    output = 0 if net < 0 else 1
+
+                # Error
+                error = data['target'] - output
+                total_error += error ** 2
+                
+                # Derivative of Sigmoid: f'(x) = f(x) * (1 - f(x))
+                derivative = output * (1 - output)
+                
+                # Update weights (Delta Rule)
+                # w_new = w_old + learning_rate * error * derivative * input
+                change_factor = self.learning_rate * error * derivative
+                
+                self.weights[0] += change_factor * self.bias
+                self.weights[1] += change_factor * data['x']
+                self.weights[2] += change_factor * data['y']
+            
+            self.cycle_count += 1
+            self.update_weights_display()
+            self.draw_decision_boundary()
+            self.cycle_label.config(text=f"Cycles: {self.cycle_count}")
+            self.root.update()
+            time.sleep(0.010)
+            
+            if total_error < 0.01: # Convergence threshold
+                print(f"Converged in {epoch+1} epochs. Total Error: {total_error}")
+                break
 
 if __name__ == "__main__":
     root = tk.Tk()
