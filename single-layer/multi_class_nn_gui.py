@@ -25,6 +25,7 @@ class MultiClassNNGUI:
         self.learning_rate = 0.5
         self.bias = 1.0
         self.errors = []
+        self.training_results = []
         
         self.is_normalized = False
         self.norm_params = {}
@@ -115,6 +116,8 @@ class MultiClassNNGUI:
         tk.Entry(controls_frame, textvariable=self.min_error_var, width=10).pack(anchor="w")
         
         tk.Button(controls_frame, text="Show Error Graph", command=self.show_error_graph).pack(anchor="w", pady=10)
+        tk.Button(controls_frame, text="Show Regression Graph", command=self.show_regression_graph).pack(anchor="w", pady=0)
+        tk.Button(controls_frame, text="Reset", command=self.reset_simulation).pack(anchor="w", pady=10)
         
         tk.Label(controls_frame, text="").pack() # Spacer
         
@@ -129,6 +132,16 @@ class MultiClassNNGUI:
         # K = num_classes
         # N = 3 (Bias, x, y)
         self.weights_matrix = [[random.uniform(-0.5, 0.5) for _ in range(3)] for _ in range(self.num_classes)]
+
+    def reset_simulation(self):
+        self.points = []
+        self.errors = []
+        self.training_results = []
+        self.cycle_count = 0
+        self.cycle_label.config(text="Cycles: 0")
+        self.initialize_weights()
+        self.draw_canvas()
+        messagebox.showinfo("Info", "Simulation reset.")
 
     def on_class_count_change(self, event):
         self.num_classes = self.class_count_var.get()
@@ -334,6 +347,28 @@ class MultiClassNNGUI:
         else:
              print("Did not converge within max epochs.")
 
+        # Collect results for regression graph
+        self.training_results = []
+        for data in training_data:
+            inputs = [self.bias, data['x'], data['y']]
+            
+            # Desired Output Vector d
+            d = [-1] * self.num_classes
+            d[data['label'] - 1] = 1 
+            
+            # Net Vector Calculation
+            net = []
+            for k in range(self.num_classes):
+                val = sum(self.weights_matrix[k][j] * inputs[j] for j in range(3))
+                net.append(val)
+                
+            # Output Vector o
+            o = [1 if n >= 0 else -1 for n in net]
+            
+            # Store each class output vs target
+            for k in range(self.num_classes):
+                self.training_results.append({'target': d[k], 'output': o[k]})
+
     def train_continuous(self):
         print("Continuous training (Delta - One vs All) selected")
         
@@ -403,6 +438,34 @@ class MultiClassNNGUI:
                 print(f"Converged in {epoch+1} epochs. Total Error: {total_error}")
                 break
 
+        # Collect results for regression graph
+        self.training_results = []
+        for data in training_data:
+            inputs = [self.bias, data['x'], data['y']]
+            
+            # Desired Output Vector d
+            d = [0] * self.num_classes
+            d[data['label'] - 1] = 1
+            
+            # Net Vector Calculation
+            net = []
+            for k in range(self.num_classes):
+                val = sum(self.weights_matrix[k][j] * inputs[j] for j in range(3))
+                net.append(val)
+                
+            # Output Vector o
+            o = []
+            for n in net:
+                try:
+                    res = 1 / (1 + math.exp(-n))
+                except OverflowError:
+                    res = 0 if n < 0 else 1
+                o.append(res)
+            
+            # Store each class output vs target
+            for k in range(self.num_classes):
+                self.training_results.append({'target': d[k], 'output': o[k]})
+
     def show_error_graph(self):
         if not self.errors:
             messagebox.showinfo("Info", "No error data to display.")
@@ -452,6 +515,63 @@ class MultiClassNNGUI:
             
         if len(points) >= 4:
             canvas.create_line(*points, fill="blue", width=2)
+
+    def show_regression_graph(self):
+        if not self.training_results:
+            messagebox.showinfo("Info", "No training results to display.")
+            return
+            
+        graph_window = tk.Toplevel(self.root)
+        graph_window.title("Regression Graph (Target vs Output)")
+        graph_window.geometry("600x400")
+        
+        canvas = tk.Canvas(graph_window, bg="white", width=550, height=350)
+        canvas.pack(padx=20, pady=20)
+        
+        targets = [d['target'] for d in self.training_results]
+        outputs = [d['output'] for d in self.training_results]
+        
+        min_val = min(min(targets), min(outputs))
+        max_val = max(max(targets), max(outputs))
+        
+        # Add some padding
+        padding = (max_val - min_val) * 0.1 if max_val != min_val else 1.0
+        min_val -= padding
+        max_val += padding
+        val_range = max_val - min_val
+        
+        # Map value to screen
+        def val_to_screen(v, is_x):
+            norm = (v - min_val) / val_range
+            if is_x:
+                return 50 + norm * 450
+            else:
+                return 300 - norm * 250
+                
+        # Draw Axes Lines
+        zero_x = val_to_screen(0, True)
+        zero_y = val_to_screen(0, False)
+        
+        axis_x = zero_x if 50 <= zero_x <= 500 else 50
+        axis_y = zero_y if 50 <= zero_y <= 300 else 300
+        
+        canvas.create_line(50, axis_y, 500, axis_y, width=1, fill="gray")
+        canvas.create_line(axis_x, 50, axis_x, 300, width=1, fill="gray")
+        
+        # Labels
+        canvas.create_text(275, 330, text="Target Output")
+        canvas.create_text(20, 175, text="Actual Output", angle=90)
+        
+        # Draw Ideal Line (y=x)
+        p1_x, p1_y = val_to_screen(min_val, True), val_to_screen(min_val, False)
+        p2_x, p2_y = val_to_screen(max_val, True), val_to_screen(max_val, False)
+        canvas.create_line(p1_x, p1_y, p2_x, p2_y, fill="green", dash=(4, 4))
+        
+        # Plot Points
+        for res in self.training_results:
+            x = val_to_screen(res['target'], True)
+            y = val_to_screen(res['output'], False)
+            canvas.create_oval(x-3, y-3, x+3, y+3, fill="blue", outline="blue")
 
 if __name__ == "__main__":
     root = tk.Tk()

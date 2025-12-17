@@ -23,6 +23,7 @@ class NeuralNetworkGUI:
         self.learning_rate = 1
         self.bias = 1 # Bias input value
         self.errors = []
+        self.training_results = []
         
         self.is_normalized = False
         self.norm_params = {}
@@ -100,6 +101,8 @@ class NeuralNetworkGUI:
         tk.Entry(controls_frame, textvariable=self.min_error_var, width=10).pack(anchor="w")
         
         tk.Button(controls_frame, text="Show Error Graph", command=self.show_error_graph).pack(anchor="w", pady=10)
+        tk.Button(controls_frame, text="Show Regression Graph", command=self.show_regression_graph).pack(anchor="w", pady=0)
+        tk.Button(controls_frame, text="Reset", command=self.reset_simulation).pack(anchor="w", pady=10)
         
         tk.Label(controls_frame, text="").pack() # Spacer
         
@@ -175,6 +178,17 @@ class NeuralNetworkGUI:
             self.draw_decision_boundary()
         except ValueError:
             messagebox.showerror("Error", "Invalid input. Please enter numbers.")
+
+    def reset_simulation(self):
+        self.points = []
+        self.errors = []
+        self.training_results = []
+        self.cycle_count = 0
+        self.cycle_label.config(text="Cycles: 0")
+        self.initialize_randomly()
+        self.canvas.delete("all")
+        self.draw_axes()
+        messagebox.showinfo("Info", "Simulation reset.")
 
     def update_weights_display(self):
         w0, w1, w2 = self.weights
@@ -306,11 +320,18 @@ class NeuralNetworkGUI:
             self.root.update()
             # time.sleep(0.010)
             
-            if error_count <= min_error:
+            if error_count == 0:
                 print(f"Converged in {epoch+1} epochs.")
                 break
         else:
              print("Did not converge within max epochs.")
+
+        # Collect results for regression graph
+        self.training_results = []
+        for data in training_data:
+            net = self.weights[0] * self.bias + self.weights[1] * data['x'] + self.weights[2] * data['y']
+            output = 1 if net >= 0 else -1
+            self.training_results.append({'target': data['target'], 'output': output})
 
     def train_continuous(self):
         print("Continuous training (Delta) selected")
@@ -398,6 +419,16 @@ class NeuralNetworkGUI:
                 print(f"Converged in {epoch+1} epochs. Total Error: {total_error}")
                 break
 
+        # Collect results for regression graph
+        self.training_results = []
+        for data in training_data:
+            net = self.weights[0] * self.bias + self.weights[1] * data['x'] + self.weights[2] * data['y']
+            try:
+                output = 1 / (1 + math.exp(-net))
+            except OverflowError:
+                output = 0 if net < 0 else 1
+            self.training_results.append({'target': data['target'], 'output': output})
+
     def show_error_graph(self):
         if not self.errors:
             messagebox.showinfo("Info", "No error data to display.")
@@ -447,6 +478,71 @@ class NeuralNetworkGUI:
             
         if len(points) >= 4:
             canvas.create_line(*points, fill="blue", width=2)
+
+    def show_regression_graph(self):
+        if not self.training_results:
+            messagebox.showinfo("Info", "No training results to display.")
+            return
+            
+        graph_window = tk.Toplevel(self.root)
+        graph_window.title("Regression Graph (Target vs Output)")
+        graph_window.geometry("600x400")
+        
+        canvas = tk.Canvas(graph_window, bg="white", width=550, height=350)
+        canvas.pack(padx=20, pady=20)
+        
+        # Draw axes
+        # Center (0,0) might be in the middle if targets are -1 to 1
+        # Or bottom left if 0 to 1.
+        
+        targets = [d['target'] for d in self.training_results]
+        outputs = [d['output'] for d in self.training_results]
+        
+        min_val = min(min(targets), min(outputs))
+        max_val = max(max(targets), max(outputs))
+        
+        # Add some padding
+        padding = (max_val - min_val) * 0.1 if max_val != min_val else 1.0
+        min_val -= padding
+        max_val += padding
+        val_range = max_val - min_val
+        
+        # Map value to screen
+        def val_to_screen(v, is_x):
+            norm = (v - min_val) / val_range
+            if is_x:
+                return 50 + norm * 450
+            else:
+                return 300 - norm * 250
+                
+        # Draw Axes Lines
+        # Find where 0 is
+        zero_x = val_to_screen(0, True)
+        zero_y = val_to_screen(0, False)
+        
+        # If 0 is within view, draw axis lines there, else draw at edges
+        axis_x = zero_x if 50 <= zero_x <= 500 else 50
+        axis_y = zero_y if 50 <= zero_y <= 300 else 300
+        
+        # X Axis line
+        canvas.create_line(50, axis_y, 500, axis_y, width=1, fill="gray")
+        # Y Axis line
+        canvas.create_line(axis_x, 50, axis_x, 300, width=1, fill="gray")
+        
+        # Labels
+        canvas.create_text(275, 330, text="Target Output")
+        canvas.create_text(20, 175, text="Actual Output", angle=90)
+        
+        # Draw Ideal Line (y=x)
+        p1_x, p1_y = val_to_screen(min_val, True), val_to_screen(min_val, False)
+        p2_x, p2_y = val_to_screen(max_val, True), val_to_screen(max_val, False)
+        canvas.create_line(p1_x, p1_y, p2_x, p2_y, fill="green", dash=(4, 4))
+        
+        # Plot Points
+        for res in self.training_results:
+            x = val_to_screen(res['target'], True)
+            y = val_to_screen(res['output'], False)
+            canvas.create_oval(x-3, y-3, x+3, y+3, fill="blue", outline="blue")
 
 if __name__ == "__main__":
     root = tk.Tk()
