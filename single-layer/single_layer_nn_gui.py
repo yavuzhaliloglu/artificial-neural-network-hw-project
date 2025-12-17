@@ -22,6 +22,7 @@ class NeuralNetworkGUI:
         self.weights = [0.0, 0.0, 0.0] # w0 (bias), w1, w2
         self.learning_rate = 1
         self.bias = 1 # Bias input value
+        self.errors = []
         
         self.is_normalized = False
         self.norm_params = {}
@@ -81,6 +82,25 @@ class NeuralNetworkGUI:
         self.normalize_var = tk.BooleanVar()
         tk.Checkbutton(controls_frame, text="Normalize Data", variable=self.normalize_var).pack(anchor="w")
 
+        tk.Label(controls_frame, text="").pack() # Spacer
+
+        # Learning Rate
+        tk.Label(controls_frame, text="Learning Rate:", font=("Arial", 10)).pack(anchor="w")
+        self.learning_rate_var = tk.DoubleVar(value=0.5)
+        tk.Entry(controls_frame, textvariable=self.learning_rate_var, width=10).pack(anchor="w")
+
+        # Max Epochs
+        tk.Label(controls_frame, text="Max Epochs:", font=("Arial", 10)).pack(anchor="w")
+        self.max_epochs_var = tk.IntVar(value=1000)
+        tk.Entry(controls_frame, textvariable=self.max_epochs_var, width=10).pack(anchor="w")
+
+        # Min Error
+        tk.Label(controls_frame, text="Min Error:", font=("Arial", 10)).pack(anchor="w")
+        self.min_error_var = tk.DoubleVar(value=0.01)
+        tk.Entry(controls_frame, textvariable=self.min_error_var, width=10).pack(anchor="w")
+        
+        tk.Button(controls_frame, text="Show Error Graph", command=self.show_error_graph).pack(anchor="w", pady=10)
+        
         tk.Label(controls_frame, text="").pack() # Spacer
         
         # Weights Display
@@ -213,8 +233,16 @@ class NeuralNetworkGUI:
     def train_binary(self):
         print("Binary training (Perceptron) selected")
         
-        max_epochs = 1000
+        try:
+            max_epochs = self.max_epochs_var.get()
+            learning_rate = self.learning_rate_var.get()
+            min_error = self.min_error_var.get()
+        except ValueError:
+            messagebox.showerror("Error", "Invalid parameters. Please check Learning Rate, Max Epochs, and Min Error.")
+            return
+
         self.cycle_count = 0
+        self.errors = []
         
         # Check normalization
         self.is_normalized = self.normalize_var.get()
@@ -266,18 +294,19 @@ class NeuralNetworkGUI:
                     error_count += 1
                     # Update weights
                     # w_new = w_old + learning_rate * error * input
-                    self.weights[0] += self.learning_rate * error * self.bias
-                    self.weights[1] += self.learning_rate * error * data['x']
-                    self.weights[2] += self.learning_rate * error * data['y']
+                    self.weights[0] += learning_rate * error * self.bias
+                    self.weights[1] += learning_rate * error * data['x']
+                    self.weights[2] += learning_rate * error * data['y']
             
+            self.errors.append(error_count)
             self.cycle_count += 1
             self.update_weights_display()
             self.draw_decision_boundary()
             self.cycle_label.config(text=f"Cycles: {self.cycle_count}")
             self.root.update()
-            time.sleep(0.010)
+            # time.sleep(0.010)
             
-            if error_count == 0:
+            if error_count <= min_error:
                 print(f"Converged in {epoch+1} epochs.")
                 break
         else:
@@ -286,8 +315,16 @@ class NeuralNetworkGUI:
     def train_continuous(self):
         print("Continuous training (Delta) selected")
         
-        max_epochs = 1000
+        try:
+            max_epochs = self.max_epochs_var.get()
+            learning_rate = self.learning_rate_var.get()
+            min_error = self.min_error_var.get()
+        except ValueError:
+            messagebox.showerror("Error", "Invalid parameters. Please check Learning Rate, Max Epochs, and Min Error.")
+            return
+
         self.cycle_count = 0
+        self.errors = []
         
         # Check normalization
         self.is_normalized = self.normalize_var.get()
@@ -343,22 +380,73 @@ class NeuralNetworkGUI:
                 
                 # Update weights (Delta Rule)
                 # w_new = w_old + learning_rate * error * derivative * input
-                change_factor = self.learning_rate * error * derivative
+                change_factor = learning_rate * error * derivative
                 
                 self.weights[0] += change_factor * self.bias
                 self.weights[1] += change_factor * data['x']
                 self.weights[2] += change_factor * data['y']
             
+            self.errors.append(total_error)
             self.cycle_count += 1
             self.update_weights_display()
             self.draw_decision_boundary()
             self.cycle_label.config(text=f"Cycles: {self.cycle_count}")
             self.root.update()
-            time.sleep(0.010)
+            # time.sleep(0.010)
             
-            if total_error < 0.01: # Convergence threshold
+            if total_error < min_error: # Convergence threshold
                 print(f"Converged in {epoch+1} epochs. Total Error: {total_error}")
                 break
+
+    def show_error_graph(self):
+        if not self.errors:
+            messagebox.showinfo("Info", "No error data to display.")
+            return
+            
+        graph_window = tk.Toplevel(self.root)
+        graph_window.title("Error Graph")
+        graph_window.geometry("600x400")
+        
+        canvas = tk.Canvas(graph_window, bg="white", width=550, height=350)
+        canvas.pack(padx=20, pady=20)
+        
+        # Draw axes
+        canvas.create_line(50, 300, 500, 300, width=2) # X axis
+        canvas.create_line(50, 300, 50, 50, width=2)   # Y axis
+        
+        # Labels
+        canvas.create_text(275, 330, text="Epochs")
+        canvas.create_text(20, 175, text="Error", angle=90)
+        
+        max_epoch = len(self.errors)
+        max_error = max(self.errors) if self.errors else 1
+        if max_error == 0: max_error = 1
+        
+        # Draw ticks and numbers
+        # Y axis (Error)
+        for i in range(6):
+            y_val = max_error * i / 5
+            y_pos = 300 - (i / 5) * 250
+            canvas.create_line(45, y_pos, 50, y_pos)
+            canvas.create_text(40, y_pos, text=f"{y_val:.2f}", anchor="e", font=("Arial", 8))
+
+        # X axis (Epochs)
+        for i in range(6):
+            x_val = max_epoch * i / 5
+            x_pos = 50 + (i / 5) * 450
+            canvas.create_line(x_pos, 300, x_pos, 305)
+            canvas.create_text(x_pos, 315, text=f"{int(x_val)}", anchor="n", font=("Arial", 8))
+        
+        # Plot
+        points = []
+        for i, error in enumerate(self.errors):
+            x = 50 + (i / max_epoch) * 450 if max_epoch > 0 else 50
+            y = 300 - (error / max_error) * 250
+            points.append(x)
+            points.append(y)
+            
+        if len(points) >= 4:
+            canvas.create_line(*points, fill="blue", width=2)
 
 if __name__ == "__main__":
     root = tk.Tk()

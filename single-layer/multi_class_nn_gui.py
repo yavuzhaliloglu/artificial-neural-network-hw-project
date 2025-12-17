@@ -24,6 +24,7 @@ class MultiClassNNGUI:
         self.weights_matrix = [] # Matrix K x N (Rows x Cols)
         self.learning_rate = 0.5
         self.bias = 1.0
+        self.errors = []
         
         self.is_normalized = False
         self.norm_params = {}
@@ -112,6 +113,8 @@ class MultiClassNNGUI:
         tk.Label(controls_frame, text="Min Error:", font=("Arial", 10)).pack(anchor="w")
         self.min_error_var = tk.DoubleVar(value=0.01)
         tk.Entry(controls_frame, textvariable=self.min_error_var, width=10).pack(anchor="w")
+        
+        tk.Button(controls_frame, text="Show Error Graph", command=self.show_error_graph).pack(anchor="w", pady=10)
         
         tk.Label(controls_frame, text="").pack() # Spacer
         
@@ -276,6 +279,7 @@ class MultiClassNNGUI:
             return
 
         self.cycle_count = 0
+        self.errors = []
         
         self.is_normalized = self.normalize_var.get()
         training_data = self.prepare_data()
@@ -317,6 +321,7 @@ class MultiClassNNGUI:
                         for j in range(3):
                             self.weights_matrix[k][j] += learning_rate * e[k] * inputs[j]
             
+            self.errors.append(global_error)
             self.cycle_count += 1
             self.draw_canvas()
             self.cycle_label.config(text=f"Cycles: {self.cycle_count}")
@@ -341,6 +346,7 @@ class MultiClassNNGUI:
             return
 
         self.cycle_count = 0
+        self.errors = []
         
         self.is_normalized = self.normalize_var.get()
         training_data = self.prepare_data()
@@ -386,6 +392,7 @@ class MultiClassNNGUI:
                     for j in range(3):
                         self.weights_matrix[k][j] += learning_rate * delta * inputs[j]
             
+            self.errors.append(total_error)
             self.cycle_count += 1
             self.draw_canvas()
             self.cycle_label.config(text=f"Cycles: {self.cycle_count}")
@@ -395,6 +402,56 @@ class MultiClassNNGUI:
             if total_error < min_error:
                 print(f"Converged in {epoch+1} epochs. Total Error: {total_error}")
                 break
+
+    def show_error_graph(self):
+        if not self.errors:
+            messagebox.showinfo("Info", "No error data to display.")
+            return
+            
+        graph_window = tk.Toplevel(self.root)
+        graph_window.title("Error Graph")
+        graph_window.geometry("600x400")
+        
+        canvas = tk.Canvas(graph_window, bg="white", width=550, height=350)
+        canvas.pack(padx=20, pady=20)
+        
+        # Draw axes
+        canvas.create_line(50, 300, 500, 300, width=2) # X axis
+        canvas.create_line(50, 300, 50, 50, width=2)   # Y axis
+        
+        # Labels
+        canvas.create_text(275, 330, text="Epochs")
+        canvas.create_text(20, 175, text="Error", angle=90)
+        
+        max_epoch = len(self.errors)
+        max_error = max(self.errors) if self.errors else 1
+        if max_error == 0: max_error = 1
+        
+        # Draw ticks and numbers
+        # Y axis (Error)
+        for i in range(6):
+            y_val = max_error * i / 5
+            y_pos = 300 - (i / 5) * 250
+            canvas.create_line(45, y_pos, 50, y_pos)
+            canvas.create_text(40, y_pos, text=f"{y_val:.2f}", anchor="e", font=("Arial", 8))
+
+        # X axis (Epochs)
+        for i in range(6):
+            x_val = max_epoch * i / 5
+            x_pos = 50 + (i / 5) * 450
+            canvas.create_line(x_pos, 300, x_pos, 305)
+            canvas.create_text(x_pos, 315, text=f"{int(x_val)}", anchor="n", font=("Arial", 8))
+
+        # Plot
+        points = []
+        for i, error in enumerate(self.errors):
+            x = 50 + (i / max_epoch) * 450 if max_epoch > 0 else 50
+            y = 300 - (error / max_error) * 250
+            points.append(x)
+            points.append(y)
+            
+        if len(points) >= 4:
+            canvas.create_line(*points, fill="blue", width=2)
 
 if __name__ == "__main__":
     root = tk.Tk()
