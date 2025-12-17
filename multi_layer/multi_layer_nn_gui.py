@@ -167,7 +167,7 @@ class MultiLayerNNGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("Multi-Layer Neural Network")
-        self.root.geometry("800x600")
+        self.root.geometry("1000x800")
         
         self.points = []
         self.num_classes = 2
@@ -239,6 +239,15 @@ class MultiLayerNNGUI:
         tk.Button(controls_frame, text="Show Error Graph", command=self.show_error_graph).pack(anchor="w", pady=5)
         tk.Button(controls_frame, text="Show Regression", command=self.show_regression_graph).pack(anchor="w", pady=5)
         tk.Button(controls_frame, text="Clear Points", command=self.clear_points).pack(anchor="w", pady=5)
+
+        # Results Labels
+        tk.Label(controls_frame, text="Results:", font=("Arial", 10, "bold")).pack(anchor="w", pady=(10, 5))
+        self.accuracy_label = tk.Label(controls_frame, text="Accuracy: N/A")
+        self.accuracy_label.pack(anchor="w")
+        self.test_samples_label = tk.Label(controls_frame, text="Test Samples: N/A")
+        self.test_samples_label.pack(anchor="w")
+        self.final_error_label = tk.Label(controls_frame, text="Final Error: N/A")
+        self.final_error_label.pack(anchor="w")
 
         # Draw Axes
         self.draw_axes()
@@ -406,17 +415,35 @@ class MultiLayerNNGUI:
         
         print(f"Training finished. Final Error: {self.error_history[-1] if self.error_history else 'N/A'}")
         
-        # Collect results for regression graph
+        # Collect results for regression graph and calculate accuracy
         self.training_results = []
         final_output = self.nn.forward(X)
+        
+        correct_count = 0
+        total_samples = len(X)
+        
         for i in range(len(X)):
+            # For regression graph
             for j in range(len(final_output[i])):
                 self.training_results.append({
                     'target': y[i][j],
                     'output': final_output[i][j]
                 })
+            
+            # For accuracy
+            pred_idx = final_output[i].index(max(final_output[i]))
+            true_idx = y[i].index(max(y[i]))
+            if pred_idx == true_idx:
+                correct_count += 1
                 
-        self.update_main_regression()
+        accuracy = (correct_count / total_samples) * 100 if total_samples > 0 else 0
+        
+        # Update GUI labels
+        self.accuracy_label.config(text=f"Accuracy: {accuracy:.2f}%")
+        self.test_samples_label.config(text=f"Test Samples: {total_samples}")
+        self.final_error_label.config(text=f"Final Error: {self.error_history[-1]:.6f}")
+                
+        self.draw_regression_on_canvas(self.canvas)
 
     def train_with_momentum(self):
         print("Training with momentum...")
