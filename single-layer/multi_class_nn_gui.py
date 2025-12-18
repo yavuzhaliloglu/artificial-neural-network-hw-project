@@ -14,13 +14,14 @@ class Point:
 class MultiClassNNGUI:
     def __init__(self, root):
         self.root = root
-        self.root.title("Multi-Class Neural Network - Single Layer")
+        self.root.title("Single-Layer Neural Network - Classification & Regression")
         self.root.geometry("1000x800")
         
         # Data
         self.points = [] 
         self.num_classes = 2
         self.current_class = 1
+        self.mode = "Manual"  # "Manual" (Classification) or "Regression"
         self.weights_matrix = [] # Matrix K x N (Rows x Cols)
         self.learning_rate = 0.5
         self.bias = 1.0
@@ -29,6 +30,8 @@ class MultiClassNNGUI:
         
         self.is_normalized = False
         self.norm_params = {}
+        self.normalization_params_in = None
+        self.normalization_params_out = None
         
         self.colors = ['red', 'blue', 'green', 'orange', 'purple', 'brown']
         
@@ -75,22 +78,35 @@ class MultiClassNNGUI:
         controls_frame = tk.Frame(main_frame)
         controls_frame.pack(side=tk.RIGHT, fill=tk.Y, padx=10, pady=10, anchor="n")
         
-        # Class Count Selection
-        tk.Label(controls_frame, text="Class Count:", font=("Arial", 10, "bold")).pack(anchor="w", pady=(0, 5))
-        self.class_count_var = tk.IntVar(value=2)
-        self.class_count_combo = ttk.Combobox(controls_frame, textvariable=self.class_count_var, values=[2, 3, 4, 5, 6], state="readonly", width=5)
-        self.class_count_combo.pack(anchor="w")
-        self.class_count_combo.bind("<<ComboboxSelected>>", self.on_class_count_change)
+        # Mode Selection
+        tk.Label(controls_frame, text="Mode:", font=("Arial", 10, "bold")).pack(anchor="w", pady=(0, 5))
+        self.mode_var = tk.StringVar(value="Manual")
+        tk.Radiobutton(controls_frame, text="Classification", variable=self.mode_var, value="Manual", command=self.toggle_mode).pack(anchor="w")
+        tk.Radiobutton(controls_frame, text="Regression (Curve Fitting)", variable=self.mode_var, value="Regression", command=self.toggle_mode).pack(anchor="w")
         
         tk.Label(controls_frame, text="").pack() # Spacer
         
+        # Classification Controls Frame
+        self.class_controls_frame = tk.Frame(controls_frame)
+        
+        # Class Count Selection
+        tk.Label(self.class_controls_frame, text="Class Count:", font=("Arial", 10, "bold")).pack(anchor="w", pady=(0, 5))
+        self.class_count_var = tk.IntVar(value=2)
+        self.class_count_combo = ttk.Combobox(self.class_controls_frame, textvariable=self.class_count_var, values=[2, 3, 4, 5, 6], state="readonly", width=5)
+        self.class_count_combo.pack(anchor="w")
+        self.class_count_combo.bind("<<ComboboxSelected>>", self.on_class_count_change)
+        
+        tk.Label(self.class_controls_frame, text="").pack() # Spacer
+        
         # Class Selection
-        tk.Label(controls_frame, text="Select Class:", font=("Arial", 10, "bold")).pack(anchor="w", pady=(0, 5))
+        tk.Label(self.class_controls_frame, text="Select Class:", font=("Arial", 10, "bold")).pack(anchor="w", pady=(0, 5))
         self.class_select_var = tk.StringVar(value="Class 1")
-        self.class_select_combo = ttk.Combobox(controls_frame, textvariable=self.class_select_var, state="readonly", width=10)
+        self.class_select_combo = ttk.Combobox(self.class_controls_frame, textvariable=self.class_select_var, state="readonly", width=10)
         self.class_select_combo.pack(anchor="w")
         self.class_select_combo.bind("<<ComboboxSelected>>", self.on_class_select_change)
         self.update_class_select_options()
+        
+        self.class_controls_frame.pack(fill=tk.X)
         
         tk.Label(controls_frame, text="").pack() # Spacer
 
@@ -135,11 +151,30 @@ class MultiClassNNGUI:
         
         self.draw_axes()
 
+    def toggle_mode(self):
+        self.mode = self.mode_var.get()
+        self.points = []
+        self.errors = []
+        self.canvas.delete("all")
+        
+        if self.mode == "Manual":
+            self.class_controls_frame.pack(fill=tk.X)
+        else:  # Regression
+            self.class_controls_frame.pack_forget()
+            self.normalize_var.set(True)  # Force normalization for regression
+        
+        self.draw_axes()
+        self.initialize_weights()
+    
     def initialize_weights(self):
         # Matrix K x N (Rows x Cols)
-        # K = num_classes
-        # N = 3 (Bias, x, y)
-        self.weights_matrix = [[random.uniform(-0.5, 0.5) for _ in range(3)] for _ in range(self.num_classes)]
+        if self.mode == "Regression":
+            # For regression: 1 output, 2 inputs (x -> y)
+            # Weights: [bias, x]
+            self.weights_matrix = [[random.uniform(-0.5, 0.5) for _ in range(2)]]
+        else:
+            # For classification: K classes, 3 inputs (bias, x, y)
+            self.weights_matrix = [[random.uniform(-0.5, 0.5) for _ in range(3)] for _ in range(self.num_classes)]
 
     def reset_simulation(self):
         self.points = []
@@ -197,7 +232,10 @@ class MultiClassNNGUI:
         
     def draw_point(self, x, y, label):
         r = 4
-        color = self.colors[(label - 1) % len(self.colors)]
+        if self.mode == "Regression":
+            color = "black"
+        else:
+            color = self.colors[(label - 1) % len(self.colors)]
         self.canvas.create_oval(x-r, y-r, x+r, y+r, outline=color, fill=color)
 
     def draw_canvas(self):
@@ -206,13 +244,24 @@ class MultiClassNNGUI:
         for p in self.points:
             sx, sy = self.cartesian_to_screen(p.x, p.y)
             self.draw_point(sx, sy, p.label)
-        self.draw_decision_boundaries()
+        if self.mode == "Manual":  # Only draw decision boundaries in classification mode
+            self.draw_decision_boundaries()
 
     def initialize_randomly(self):
         self.initialize_weights()
-        self.draw_canvas()
+        if self.mode == "Regression":
+            self.canvas.delete("all")
+            self.draw_axes()
+            for p in self.points:
+                sx, sy = self.cartesian_to_screen(p.x, p.y)
+                self.draw_point(sx, sy, 1)
+        else:
+            self.draw_canvas()
 
     def draw_decision_boundaries(self):
+        if self.mode == "Regression":
+            return  # No decision boundaries in regression mode
+            
         self.canvas.delete("boundary")
         
         for i in range(self.num_classes):
@@ -266,29 +315,55 @@ class MultiClassNNGUI:
         for p in self.points:
             data.append({'x': p.x, 'y': p.y, 'label': p.label})
             
-        if self.is_normalized:
-            xs = [d['x'] for d in data]
-            ys = [d['y'] for d in data]
-            x_min, x_max = min(xs), max(xs)
-            y_min, y_max = min(ys), max(ys)
-            
-            x_range = x_max - x_min if x_max != x_min else 1.0
-            y_range = y_max - y_min if y_max != y_min else 1.0
-            
-            self.norm_params = {
-                'x_min': x_min, 'x_range': x_range,
-                'y_min': y_min, 'y_range': y_range
-            }
-            
-            for d in data:
-                d['x'] = 2 * (d['x'] - x_min) / x_range - 1
-                d['y'] = 2 * (d['y'] - y_min) / y_range - 1
+        if self.mode == "Regression":
+            # For regression: normalize x (input) and y (output) separately
+            if self.is_normalized:
+                xs = [d['x'] for d in data]
+                ys = [d['y'] for d in data]
+                x_min, x_max = min(xs), max(xs)
+                y_min, y_max = min(ys), max(ys)
+                
+                x_range = x_max - x_min if x_max != x_min else 1.0
+                y_range = y_max - y_min if y_max != y_min else 1.0
+                
+                self.normalization_params_in = (x_min, x_range)
+                self.normalization_params_out = (y_min, y_range)
+                
+                for d in data:
+                    d['x'] = (d['x'] - x_min) / x_range
+                    d['y'] = (d['y'] - y_min) / y_range
+            else:
+                self.normalization_params_in = None
+                self.normalization_params_out = None
         else:
-            self.norm_params = {}
+            # For classification
+            if self.is_normalized:
+                xs = [d['x'] for d in data]
+                ys = [d['y'] for d in data]
+                x_min, x_max = min(xs), max(xs)
+                y_min, y_max = min(ys), max(ys)
+                
+                x_range = x_max - x_min if x_max != x_min else 1.0
+                y_range = y_max - y_min if y_max != y_min else 1.0
+                
+                self.norm_params = {
+                    'x_min': x_min, 'x_range': x_range,
+                    'y_min': y_min, 'y_range': y_range
+                }
+                
+                for d in data:
+                    d['x'] = 2 * (d['x'] - x_min) / x_range - 1
+                    d['y'] = 2 * (d['y'] - y_min) / y_range - 1
+            else:
+                self.norm_params = {}
             
         return data
 
     def train_discrete(self):
+        if self.mode == "Regression":
+            messagebox.showinfo("Info", "Discrete training not applicable for regression. Use Continuous (Delta) instead.")
+            return
+            
         print("Discrete training (Perceptron - One vs All) selected")
         
         try:
@@ -393,6 +468,10 @@ class MultiClassNNGUI:
         self.final_error_label.config(text=f"Final Error: {self.errors[-1] if self.errors else 'N/A'}")
 
     def train_continuous(self):
+        if self.mode == "Regression":
+            self.train_regression()
+            return
+            
         print("Continuous training (Delta - One vs All) selected")
         
         try:
@@ -503,6 +582,127 @@ class MultiClassNNGUI:
         self.accuracy_label.config(text=f"Accuracy: {accuracy:.2f}%")
         self.test_samples_label.config(text=f"Test Samples: {total_samples}")
         self.final_error_label.config(text=f"Final Error: {self.errors[-1] if self.errors else 'N/A'}")
+
+    def train_regression(self):
+        print("Regression training (Single Layer Linear) selected")
+        
+        try:
+            max_epochs = self.max_epochs_var.get()
+            learning_rate = self.learning_rate_var.get()
+            min_error = self.min_error_var.get()
+        except ValueError:
+            messagebox.showerror("Error", "Invalid parameters.")
+            return
+
+        self.cycle_count = 0
+        self.errors = []
+        
+        self.is_normalized = self.normalize_var.get()
+        training_data = self.prepare_data()
+        
+        if not training_data:
+            messagebox.showwarning("Warning", "No data points to train!")
+            return
+
+        for epoch in range(max_epochs):
+            total_error = 0
+            
+            for data in training_data:
+                # Input: [bias, x]
+                inputs = [self.bias, data['x']]
+                
+                # Desired output: y
+                target = data['y']
+                
+                # Net calculation: net = w0*bias + w1*x
+                net = sum(self.weights_matrix[0][j] * inputs[j] for j in range(2))
+                
+                # Linear output (no activation function)
+                output = net
+                
+                # Error
+                error = target - output
+                total_error += error ** 2
+                
+                # Weight update (Delta rule for linear output)
+                for j in range(2):
+                    self.weights_matrix[0][j] += learning_rate * error * inputs[j]
+            
+            mse = total_error / len(training_data)
+            self.errors.append(mse)
+            self.cycle_count += 1
+            
+            if epoch % 10 == 0:
+                self.draw_regression_line()
+                self.cycle_label.config(text=f"Cycles: {self.cycle_count}")
+                self.root.update()
+            
+            if mse < min_error:
+                print(f"Converged in {epoch+1} epochs. MSE: {mse}")
+                break
+        
+        self.draw_regression_line()
+        
+        # Calculate final MSE and R²
+        total_error = 0
+        mean_target = sum([d['y'] for d in training_data]) / len(training_data)
+        ss_tot = sum([(d['y'] - mean_target) ** 2 for d in training_data])
+        ss_res = 0
+        
+        for data in training_data:
+            inputs = [self.bias, data['x']]
+            net = sum(self.weights_matrix[0][j] * inputs[j] for j in range(2))
+            output = net
+            error = data['y'] - output
+            total_error += error ** 2
+            ss_res += error ** 2
+        
+        mse = total_error / len(training_data)
+        r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
+        
+        self.accuracy_label.config(text=f"R²: {r_squared:.4f}")
+        self.test_samples_label.config(text=f"Samples: {len(training_data)}")
+        self.final_error_label.config(text=f"MSE: {mse:.6f}")
+
+    def draw_regression_line(self):
+        self.canvas.delete("all")
+        self.draw_axes()
+        
+        # Draw training points
+        for p in self.points:
+            sx, sy = self.cartesian_to_screen(p.x, p.y)
+            self.draw_point(sx, sy, 1)
+        
+        # Draw regression line
+        screen_x_coords = range(0, self.canvas_width, 2)
+        line_coords = []
+        
+        for sx in screen_x_coords:
+            cx, _ = self.screen_to_cartesian(sx, 0)
+            
+            # Normalize input if needed
+            if self.normalization_params_in:
+                x_min, x_range = self.normalization_params_in
+                x_norm = (cx - x_min) / x_range
+            else:
+                x_norm = cx
+            
+            # Predict
+            net = self.weights_matrix[0][0] * self.bias + self.weights_matrix[0][1] * x_norm
+            y_pred = net
+            
+            # Denormalize output if needed
+            if self.normalization_params_out:
+                y_min, y_range = self.normalization_params_out
+                y_real = y_pred * y_range + y_min
+            else:
+                y_real = y_pred
+            
+            _, sy = self.cartesian_to_screen(0, y_real)
+            line_coords.append((sx, sy))
+        
+        if len(line_coords) > 1:
+            self.canvas.create_line(line_coords, fill="red", width=3)
 
     def show_error_graph(self):
         if not self.errors:
