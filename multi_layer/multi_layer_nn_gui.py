@@ -1,9 +1,11 @@
 import tkinter as tk
 from tkinter import ttk
 from tkinter import messagebox
+from tkinter import filedialog
 from dataclasses import dataclass
 import math
 import random
+import csv
 
 # --- Matrix Math Helpers ---
 def mat_zeros(rows, cols):
@@ -31,7 +33,7 @@ def mat_add(A, B):
 def mat_sub(A, B):
     return [[A[i][j] - B[i][j] for j in range(len(A[0]))] for i in range(len(A))]
 
-def mat_mul(A, B): # Element-wise
+def mat_mul(A, B):
     return [[A[i][j] * B[i][j] for j in range(len(A[0]))] for i in range(len(A))]
 
 def mat_scale(A, s):
@@ -163,9 +165,10 @@ class MultiLayerNNGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("Multi-Layer Neural Network")
-        self.root.geometry("1000x800")
+        self.root.geometry("1200x800")
         
         self.points = []
+        self.mnist_data = [] # Store MNIST data
         self.num_classes = 2
         self.current_class = 1
         self.colors = ['red', 'blue', 'green', 'orange', 'purple', 'brown']
@@ -186,70 +189,155 @@ class MultiLayerNNGUI:
         self.canvas.bind("<Button-1>", self.on_canvas_click)
         
         # Controls Frame
-        controls_frame = tk.Frame(main_frame)
-        controls_frame.pack(side=tk.RIGHT, fill=tk.Y, padx=10, anchor="n")
+        self.controls_frame = tk.Frame(main_frame)
+        self.controls_frame.pack(side=tk.RIGHT, fill=tk.Y, padx=10, anchor="n")
         
-        # Class Count Selection
-        tk.Label(controls_frame, text="Class Count:", font=("Arial", 10, "bold")).pack(anchor="w", pady=(0, 5))
+        # Mode Selection
+        tk.Label(self.controls_frame, text="Mode:", font=("Arial", 10, "bold")).pack(anchor="w", pady=(0, 5))
+        self.mode_var = tk.StringVar(value="Manual")
+        tk.Radiobutton(self.controls_frame, text="Manual Coordinate Input", variable=self.mode_var, value="Manual", command=self.toggle_mode).pack(anchor="w")
+        tk.Radiobutton(self.controls_frame, text="MNIST Dataset", variable=self.mode_var, value="MNIST", command=self.toggle_mode).pack(anchor="w")
+        
+        tk.Label(self.controls_frame, text="").pack() # Spacer
+
+        # --- Manual Mode Controls ---
+        self.manual_frame = tk.Frame(self.controls_frame)
+        
+        tk.Label(self.manual_frame, text="Class Count:", font=("Arial", 10, "bold")).pack(anchor="w", pady=(0, 5))
         self.class_count_var = tk.IntVar(value=2)
-        self.class_count_combo = ttk.Combobox(controls_frame, textvariable=self.class_count_var, values=[2, 3, 4, 5, 6], state="readonly", width=5)
+        self.class_count_combo = ttk.Combobox(self.manual_frame, textvariable=self.class_count_var, values=[2, 3, 4, 5, 6], state="readonly", width=5)
         self.class_count_combo.pack(anchor="w")
         self.class_count_combo.bind("<<ComboboxSelected>>", self.on_class_count_change)
         
-        tk.Label(controls_frame, text="").pack() # Spacer
-        
-        # Class Selection
-        tk.Label(controls_frame, text="Select Class:", font=("Arial", 10, "bold")).pack(anchor="w", pady=(0, 5))
+        tk.Label(self.manual_frame, text="Select Class:", font=("Arial", 10, "bold")).pack(anchor="w", pady=(5, 5))
         self.class_select_var = tk.StringVar(value="Class 1")
-        self.class_select_combo = ttk.Combobox(controls_frame, textvariable=self.class_select_var, state="readonly", width=10)
+        self.class_select_combo = ttk.Combobox(self.manual_frame, textvariable=self.class_select_var, state="readonly", width=10)
         self.class_select_combo.pack(anchor="w")
         self.class_select_combo.bind("<<ComboboxSelected>>", self.on_class_select_change)
         self.update_class_select_options()
         
-        tk.Label(controls_frame, text="").pack() # Spacer
+        tk.Button(self.manual_frame, text="Clear Points", command=self.clear_points).pack(anchor="w", pady=5)
         
-        tk.Label(controls_frame, text="Number of Hidden Layers:").pack(anchor="w", pady=(0, 5))
-        self.num_layers_var = tk.IntVar(value=1)
-        tk.Entry(controls_frame, textvariable=self.num_layers_var).pack(anchor="w", pady=(0, 10))
+        # --- MNIST Mode Controls ---
+        self.mnist_frame = tk.Frame(self.controls_frame)
+        
+        tk.Button(self.mnist_frame, text="Load MNIST CSV", command=self.load_mnist_data).pack(anchor="w", pady=5)
+        tk.Label(self.mnist_frame, text="Samples per Digit:").pack(anchor="w")
+        self.samples_per_digit_var = tk.IntVar(value=100)
+        tk.Entry(self.mnist_frame, textvariable=self.samples_per_digit_var).pack(anchor="w", pady=(0, 5))
+        self.mnist_status_label = tk.Label(self.mnist_frame, text="Data: 0 samples", fg="red")
+        self.mnist_status_label.pack(anchor="w")
 
-        tk.Label(controls_frame, text="Neurons per Layer (e.g. 4,5):").pack(anchor="w", pady=(0, 5))
+        # --- Common Controls ---
+        self.common_frame = tk.Frame(self.controls_frame)
+        
+        tk.Label(self.common_frame, text="Number of Hidden Layers:").pack(anchor="w", pady=(10, 5))
+        self.num_layers_var = tk.IntVar(value=1)
+        tk.Entry(self.common_frame, textvariable=self.num_layers_var).pack(anchor="w", pady=(0, 10))
+
+        tk.Label(self.common_frame, text="Neurons per Layer (e.g. 4,5):").pack(anchor="w", pady=(0, 5))
         self.neurons_per_layer_var = tk.StringVar(value="5")
-        tk.Entry(controls_frame, textvariable=self.neurons_per_layer_var).pack(anchor="w", pady=(0, 10))
+        tk.Entry(self.common_frame, textvariable=self.neurons_per_layer_var).pack(anchor="w", pady=(0, 10))
 
         # Normalize Checkbox
         self.normalize_var = tk.BooleanVar()
-        tk.Checkbutton(controls_frame, text="Normalize Data", variable=self.normalize_var).pack(anchor="w", pady=(0, 10))
+        self.normalize_check = tk.Checkbutton(self.common_frame, text="Normalize Data", variable=self.normalize_var)
+        self.normalize_check.pack(anchor="w", pady=(0, 10))
 
-        tk.Label(controls_frame, text="Max Epochs:").pack(anchor="w", pady=(0, 5))
+        tk.Label(self.common_frame, text="Max Epochs:").pack(anchor="w", pady=(0, 5))
         self.max_epochs_var = tk.IntVar(value=1000)
-        tk.Entry(controls_frame, textvariable=self.max_epochs_var).pack(anchor="w", pady=(0, 10))
+        tk.Entry(self.common_frame, textvariable=self.max_epochs_var).pack(anchor="w", pady=(0, 10))
 
-        tk.Label(controls_frame, text="Learning Rate:").pack(anchor="w", pady=(0, 5))
+        tk.Label(self.common_frame, text="Learning Rate:").pack(anchor="w", pady=(0, 5))
         self.learning_rate_var = tk.DoubleVar(value=0.1)
-        tk.Entry(controls_frame, textvariable=self.learning_rate_var).pack(anchor="w", pady=(0, 10))
+        tk.Entry(self.common_frame, textvariable=self.learning_rate_var).pack(anchor="w", pady=(0, 10))
 
-        tk.Label(controls_frame, text="Min Error:").pack(anchor="w", pady=(0, 5))
+        tk.Label(self.common_frame, text="Min Error:").pack(anchor="w", pady=(0, 5))
         self.min_error_var = tk.DoubleVar(value=0.01)
-        tk.Entry(controls_frame, textvariable=self.min_error_var).pack(anchor="w", pady=(0, 10))
+        tk.Entry(self.common_frame, textvariable=self.min_error_var).pack(anchor="w", pady=(0, 10))
 
-        tk.Button(controls_frame, text="Show Error Graph", command=self.show_error_graph).pack(anchor="w", pady=5)
-        tk.Button(controls_frame, text="Show Regression", command=self.show_regression_graph).pack(anchor="w", pady=5)
-        tk.Button(controls_frame, text="Clear Points", command=self.clear_points).pack(anchor="w", pady=5)
+        tk.Button(self.common_frame, text="Show Error Graph", command=self.show_error_graph).pack(anchor="w", pady=5)
 
         # Results Labels
-        tk.Label(controls_frame, text="Results:", font=("Arial", 10, "bold")).pack(anchor="w", pady=(10, 5))
-        self.accuracy_label = tk.Label(controls_frame, text="Accuracy: N/A")
+        tk.Label(self.common_frame, text="Results:", font=("Arial", 10, "bold")).pack(anchor="w", pady=(10, 5))
+        self.accuracy_label = tk.Label(self.common_frame, text="Accuracy: N/A")
         self.accuracy_label.pack(anchor="w")
-        self.test_samples_label = tk.Label(controls_frame, text="Test Samples: N/A")
+        self.test_samples_label = tk.Label(self.common_frame, text="Test Samples: N/A")
         self.test_samples_label.pack(anchor="w")
-        self.final_error_label = tk.Label(controls_frame, text="Final Error: N/A")
+        self.final_error_label = tk.Label(self.common_frame, text="Final Error: N/A")
         self.final_error_label.pack(anchor="w")
 
+        # Initial Pack
+        self.manual_frame.pack(fill=tk.X)
+        self.common_frame.pack(fill=tk.X)
+        
         # Draw Axes
         self.draw_axes()
         
         # Setup Menu
         self.setup_menu()
+
+    def toggle_mode(self):
+        mode = self.mode_var.get()
+        if mode == "Manual":
+            self.mnist_frame.pack_forget()
+            self.manual_frame.pack(fill=tk.X, before=self.common_frame)
+            self.normalize_check.config(state="normal")
+            self.canvas.delete("all")
+            self.draw_axes()
+            for p in self.points:
+                sx, sy = self.cartesian_to_screen(p.x, p.y)
+                self.draw_point(sx, sy, p.label)
+        else:
+            self.manual_frame.pack_forget()
+            self.mnist_frame.pack(fill=tk.X, before=self.common_frame)
+            self.normalize_check.config(state="disabled") # MNIST is usually pre-normalized or we handle it
+            self.canvas.delete("all")
+            self.canvas.create_text(self.canvas_width/2, self.canvas_height/2, text="MNIST Mode Active", font=("Arial", 20))
+
+    def load_mnist_data(self):
+        file_path = filedialog.askopenfilename(filetypes=[("CSV Files", "*.csv")])
+        if not file_path:
+            return
+            
+        samples_per_digit = self.samples_per_digit_var.get()
+        self.mnist_data = []
+        counts = {i: 0 for i in range(10)}
+        
+        try:
+            with open(file_path, 'r') as f:
+                reader = csv.reader(f)
+                header = next(reader, None)
+                
+                # Check if header is actually data
+                if header:
+                    try:
+                        int(header[0])
+                        # It's data
+                        label = int(header[0])
+                        if counts[label] < samples_per_digit:
+                            pixels = [float(p) / 255.0 for p in header[1:]]
+                            self.mnist_data.append((label, pixels))
+                            counts[label] += 1
+                    except ValueError:
+                        pass 
+                
+                for row in reader:
+                    if not row: continue
+                    try:
+                        label = int(row[0])
+                        if counts[label] < samples_per_digit:
+                            pixels = [float(p) / 255.0 for p in row[1:]]
+                            self.mnist_data.append((label, pixels))
+                            counts[label] += 1
+                    except ValueError:
+                        continue
+                        
+            self.mnist_status_label.config(text=f"Data: {len(self.mnist_data)} samples", fg="green")
+            messagebox.showinfo("Success", f"Loaded {len(self.mnist_data)} samples.")
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to load file: {e}")
 
     def clear_points(self):
         self.points = []
@@ -286,6 +374,7 @@ class MultiLayerNNGUI:
         return sx, sy
 
     def on_canvas_click(self, event):
+        if self.mode_var.get() == "MNIST": return
         cx, cy = self.screen_to_cartesian(event.x, event.y)
         self.points.append(Point(cx, cy, self.current_class))
         self.draw_point(event.x, event.y, self.current_class)
@@ -332,8 +421,12 @@ class MultiLayerNNGUI:
             
             print("hidden layers:", neurons_per_layer)
             
-            input_size = 2
-            output_size = self.num_classes
+            if self.mode_var.get() == "Manual":
+                input_size = 2
+                output_size = self.num_classes
+            else: # MNIST
+                input_size = 784
+                output_size = 10
             
             self.nn = MultiLayerPerceptron(input_size, neurons_per_layer, output_size)
             print("Weights initialized.")
@@ -343,6 +436,19 @@ class MultiLayerNNGUI:
             print("Invalid hidden layers configuration.")
 
     def get_training_data(self):
+        if self.mode_var.get() == "MNIST":
+            if not self.mnist_data:
+                return None, None
+            
+            X = [d[1] for d in self.mnist_data]
+            y = [[0.0] * 10 for _ in range(len(self.mnist_data))]
+            for i, d in enumerate(self.mnist_data):
+                y[i][d[0]] = 1.0
+            
+            # MNIST data is already normalized to 0-1 range during loading
+            self.normalization_params = None
+            return X, y
+
         if not self.points:
             return None, None
             
@@ -381,8 +487,11 @@ class MultiLayerNNGUI:
         return X, y
 
     def train(self, momentum=0.0):
-        if not self.points:
+        if self.mode_var.get() == "Manual" and not self.points:
             print("No points to train on.")
+            return
+        if self.mode_var.get() == "MNIST" and not self.mnist_data:
+            print("No MNIST data loaded.")
             return
 
         if self.nn is None:
@@ -402,8 +511,8 @@ class MultiLayerNNGUI:
             mse = self.nn.backward(y, learning_rate, momentum)
             self.error_history.append(mse)
             
-            if epoch % 100 == 0:
-                print(f"Epoch {epoch}, Error: {mse}")
+            print(f"Epoch {epoch}, Error: {mse}")
+            self.root.update()
                 
             if mse < min_error:
                 print(f"Converged at epoch {epoch}, Error: {mse}")
@@ -439,7 +548,8 @@ class MultiLayerNNGUI:
         self.test_samples_label.config(text=f"Test Samples: {total_samples}")
         self.final_error_label.config(text=f"Final Error: {self.error_history[-1]:.6f}")
                 
-        self.draw_regression_on_canvas(self.canvas)
+        if self.mode_var.get() == "Manual":
+            self.draw_regression_on_canvas(self.canvas)
 
     def train_with_momentum(self):
         print("Training with momentum...")
@@ -571,66 +681,9 @@ class MultiLayerNNGUI:
             color = self.colors[(p.label - 1) % len(self.colors)]
             canvas.create_oval(sx-r, sy-r, sx+r, sy+r, outline="black", fill=color)
 
-    def show_regression_graph(self):
-        if not self.training_results:
-            messagebox.showinfo("Info", "No training results to display.")
-            return
-            
-        graph_window = tk.Toplevel(self.root)
-        graph_window.title("Regression Graph (Target vs Output)")
-        graph_window.geometry("600x400")
-        
-        canvas = tk.Canvas(graph_window, bg="white", width=550, height=350)
-        canvas.pack(padx=20, pady=20)
-        
-        targets = [d['target'] for d in self.training_results]
-        outputs = [d['output'] for d in self.training_results]
-        
-        min_val = min(min(targets), min(outputs))
-        max_val = max(max(targets), max(outputs))
-        
-        # Add some padding
-        padding = (max_val - min_val) * 0.1 if max_val != min_val else 1.0
-        min_val -= padding
-        max_val += padding
-        val_range = max_val - min_val
-        
-        # Map value to screen
-        def val_to_screen(v, is_x):
-            norm = (v - min_val) / val_range
-            if is_x:
-                return 50 + norm * 450
-            else:
-                return 300 - norm * 250
-                
-        # Draw Axes Lines
-        zero_x = val_to_screen(0, True)
-        zero_y = val_to_screen(0, False)
-        
-        axis_x = zero_x if 50 <= zero_x <= 500 else 50
-        axis_y = zero_y if 50 <= zero_y <= 300 else 300
-        
-        canvas.create_line(50, axis_y, 500, axis_y, width=1, fill="gray")
-        canvas.create_line(axis_x, 50, axis_x, 300, width=1, fill="gray")
-        
-        # Labels
-        canvas.create_text(275, 330, text="Target Output")
-        canvas.create_text(20, 175, text="Actual Output", angle=90)
-        
-        # Draw Ideal Line (y=x)
-        p1_x, p1_y = val_to_screen(min_val, True), val_to_screen(min_val, False)
-        p2_x, p2_y = val_to_screen(max_val, True), val_to_screen(max_val, False)
-        canvas.create_line(p1_x, p1_y, p2_x, p2_y, fill="green", dash=(4, 4))
-        
-        # Plot Points
-        for res in self.training_results:
-            x = val_to_screen(res['target'], True)
-            y = val_to_screen(res['output'], False)
-            canvas.create_oval(x-3, y-3, x+3, y+3, fill="blue", outline="blue")
+            canvas.create_oval(sx-r, sy-r, sx+r, sy+r, outline="black", fill=color)
 
     def update_main_regression(self):
-        if self.nn is None:
-            return
         self.canvas.delete("all")
         self.draw_regression_on_canvas(self.canvas)
         
