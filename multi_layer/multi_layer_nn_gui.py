@@ -1,11 +1,9 @@
 import tkinter as tk
 from tkinter import ttk
 from tkinter import messagebox
-from tkinter import filedialog
 from dataclasses import dataclass
 import math
 import random
-import csv
 
 # --- Matrix Math Helpers ---
 def mat_zeros(rows, cols):
@@ -188,7 +186,6 @@ class MultiLayerNNGUI:
         self.root.geometry("1200x800")
         
         self.points = []
-        self.mnist_data = [] 
         self.num_classes = 2
         self.current_class = 1
         self.colors = ['red', 'blue', 'green', 'orange', 'purple', 'brown']
@@ -218,7 +215,6 @@ class MultiLayerNNGUI:
         
         tk.Radiobutton(self.controls_frame, text="Classification (Manual)", variable=self.mode_var, value="Manual", command=self.toggle_mode).pack(anchor="w")
         tk.Radiobutton(self.controls_frame, text="Regression (Curve Fitting)", variable=self.mode_var, value="Regression", command=self.toggle_mode).pack(anchor="w")
-        tk.Radiobutton(self.controls_frame, text="Classification (MNIST)", variable=self.mode_var, value="MNIST", command=self.toggle_mode).pack(anchor="w")
         
         tk.Label(self.controls_frame, text="").pack() # Spacer
 
@@ -242,15 +238,6 @@ class MultiLayerNNGUI:
         self.update_class_select_options()
         
         tk.Button(self.manual_frame, text="Clear Points", command=self.clear_points).pack(anchor="w", pady=15)
-        
-        # --- MNIST Mode Controls ---
-        self.mnist_frame = tk.Frame(self.controls_frame)
-        tk.Button(self.mnist_frame, text="Load MNIST CSV", command=self.load_mnist_data).pack(anchor="w", pady=5)
-        tk.Label(self.mnist_frame, text="Samples per Digit:").pack(anchor="w")
-        self.samples_per_digit_var = tk.IntVar(value=100)
-        tk.Entry(self.mnist_frame, textvariable=self.samples_per_digit_var).pack(anchor="w", pady=(0, 5))
-        self.mnist_status_label = tk.Label(self.mnist_frame, text="Data: 0 samples", fg="red")
-        self.mnist_status_label.pack(anchor="w")
 
         # --- Common Controls ---
         self.common_frame = tk.Frame(self.controls_frame)
@@ -300,7 +287,6 @@ class MultiLayerNNGUI:
         mode = self.mode_var.get()
         
         # Reset frames
-        self.mnist_frame.pack_forget()
         self.manual_frame.pack_forget()
         self.class_controls_frame.pack_forget()
         
@@ -320,45 +306,6 @@ class MultiLayerNNGUI:
             # Force normalization on for regression usually
             self.normalize_var.set(True) 
             self.draw_axes()
-            
-        elif mode == "MNIST":
-            self.mnist_frame.pack(fill=tk.X, before=self.common_frame)
-            self.normalize_check.config(state="disabled") 
-            self.canvas.create_text(self.canvas_width/2, self.canvas_height/2, text="MNIST Mode Active", font=("Arial", 20))
-
-    def load_mnist_data(self):
-        # ... (Same as before) ...
-        file_path = filedialog.askopenfilename(filetypes=[("CSV Files", "*.csv")])
-        if not file_path: return
-        samples_per_digit = self.samples_per_digit_var.get()
-        self.mnist_data = []
-        counts = {i: 0 for i in range(10)}
-        try:
-            with open(file_path, 'r') as f:
-                reader = csv.reader(f)
-                header = next(reader, None)
-                if header:
-                    try:
-                        int(header[0])
-                        label = int(header[0])
-                        if counts[label] < samples_per_digit:
-                            pixels = [float(p) / 255.0 for p in header[1:]]
-                            self.mnist_data.append((label, pixels))
-                            counts[label] += 1
-                    except ValueError: pass 
-                for row in reader:
-                    if not row: continue
-                    try:
-                        label = int(row[0])
-                        if counts[label] < samples_per_digit:
-                            pixels = [float(p) / 255.0 for p in row[1:]]
-                            self.mnist_data.append((label, pixels))
-                            counts[label] += 1
-                    except ValueError: continue
-            self.mnist_status_label.config(text=f"Data: {len(self.mnist_data)} samples", fg="green")
-            messagebox.showinfo("Success", f"Loaded {len(self.mnist_data)} samples.")
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to load file: {e}")
 
     def clear_points(self):
         self.points = []
@@ -394,8 +341,6 @@ class MultiLayerNNGUI:
         return sx, sy
 
     def on_canvas_click(self, event):
-        if self.mode_var.get() == "MNIST": return
-        
         cx, cy = self.screen_to_cartesian(event.x, event.y)
         
         # In Regression mode, label doesn't really matter, use 1
@@ -449,9 +394,6 @@ class MultiLayerNNGUI:
             elif mode == "Regression": # Regression 1D (x -> y)
                 input_size = 1
                 output_size = 1
-            else: # MNIST
-                input_size = 784
-                output_size = 10
             
             self.nn = MultiLayerPerceptron(input_size, neurons_per_layer, output_size, is_regression=is_regression)
             print("Weights initialized.")
@@ -488,14 +430,6 @@ class MultiLayerNNGUI:
     def get_training_data(self):
         mode = self.mode_var.get()
         
-        if mode == "MNIST":
-            if not self.mnist_data: return None, None
-            X = [d[1] for d in self.mnist_data]
-            y = [[0.0] * 10 for _ in range(len(self.mnist_data))]
-            for i, d in enumerate(self.mnist_data): y[i][d[0]] = 1.0
-            self.normalization_params_in = None
-            return X, y
-
         # Manual or Regression
         if not self.points: return None, None
             
