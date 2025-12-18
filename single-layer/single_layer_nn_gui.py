@@ -15,7 +15,7 @@ class NeuralNetworkGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("Yapay Sinir Ağları - Ödev")
-        self.root.geometry("800x600")
+        self.root.geometry("1000x800")
         
         # Data
         self.points = [] # List of {'x': float, 'y': float, 'label': int}
@@ -103,6 +103,15 @@ class NeuralNetworkGUI:
         tk.Button(controls_frame, text="Show Error Graph", command=self.show_error_graph).pack(anchor="w", pady=10)
         tk.Button(controls_frame, text="Show Regression Graph", command=self.show_regression_graph).pack(anchor="w", pady=0)
         tk.Button(controls_frame, text="Reset", command=self.reset_simulation).pack(anchor="w", pady=10)
+        
+        # Results Labels
+        tk.Label(controls_frame, text="Results:", font=("Arial", 10, "bold")).pack(anchor="w", pady=(10, 5))
+        self.accuracy_label = tk.Label(controls_frame, text="Accuracy: N/A")
+        self.accuracy_label.pack(anchor="w")
+        self.test_samples_label = tk.Label(controls_frame, text="Test Samples: N/A")
+        self.test_samples_label.pack(anchor="w")
+        self.final_error_label = tk.Label(controls_frame, text="Final Error: N/A")
+        self.final_error_label.pack(anchor="w")
         
         tk.Label(controls_frame, text="").pack() # Spacer
         
@@ -326,12 +335,27 @@ class NeuralNetworkGUI:
         else:
              print("Did not converge within max epochs.")
 
-        # Collect results for regression graph
+        # Collect results for regression graph and calculate accuracy
         self.training_results = []
+        correct_count = 0
+        total_samples = len(training_data)
+
         for data in training_data:
             net = self.weights[0] * self.bias + self.weights[1] * data['x'] + self.weights[2] * data['y']
             output = 1 if net >= 0 else -1
+            
+            # Check accuracy
+            if output == data['target']:
+                correct_count += 1
+                
             self.training_results.append({'target': data['target'], 'output': output})
+
+        accuracy = (correct_count / total_samples) * 100 if total_samples > 0 else 0
+        
+        # Update GUI labels
+        self.accuracy_label.config(text=f"Accuracy: {accuracy:.2f}%")
+        self.test_samples_label.config(text=f"Test Samples: {total_samples}")
+        self.final_error_label.config(text=f"Final Error: {self.errors[-1] if self.errors else 'N/A'}")
 
     def train_continuous(self):
         print("Continuous training (Delta) selected")
@@ -419,15 +443,31 @@ class NeuralNetworkGUI:
                 print(f"Converged in {epoch+1} epochs. Total Error: {total_error}")
                 break
 
-        # Collect results for regression graph
+        # Collect results for regression graph and calculate accuracy
         self.training_results = []
+        correct_count = 0
+        total_samples = len(training_data)
+
         for data in training_data:
             net = self.weights[0] * self.bias + self.weights[1] * data['x'] + self.weights[2] * data['y']
             try:
                 output = 1 / (1 + math.exp(-net))
             except OverflowError:
                 output = 0 if net < 0 else 1
+            
+            # Check accuracy (threshold at 0.5 for binary classification)
+            predicted_class = 1 if output >= 0.5 else 0
+            if predicted_class == data['target']:
+                correct_count += 1
+                
             self.training_results.append({'target': data['target'], 'output': output})
+
+        accuracy = (correct_count / total_samples) * 100 if total_samples > 0 else 0
+        
+        # Update GUI labels
+        self.accuracy_label.config(text=f"Accuracy: {accuracy:.2f}%")
+        self.test_samples_label.config(text=f"Test Samples: {total_samples}")
+        self.final_error_label.config(text=f"Final Error: {self.errors[-1] if self.errors else 'N/A'}")
 
     def show_error_graph(self):
         if not self.errors:

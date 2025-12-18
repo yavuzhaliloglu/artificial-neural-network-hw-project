@@ -15,7 +15,7 @@ class MultiClassNNGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("Multi-Class Neural Network - Single Layer")
-        self.root.geometry("900x600")
+        self.root.geometry("1000x800")
         
         # Data
         self.points = [] 
@@ -118,6 +118,15 @@ class MultiClassNNGUI:
         tk.Button(controls_frame, text="Show Error Graph", command=self.show_error_graph).pack(anchor="w", pady=10)
         tk.Button(controls_frame, text="Show Regression Graph", command=self.show_regression_graph).pack(anchor="w", pady=0)
         tk.Button(controls_frame, text="Reset", command=self.reset_simulation).pack(anchor="w", pady=10)
+        
+        # Results Labels
+        tk.Label(controls_frame, text="Results:", font=("Arial", 10, "bold")).pack(anchor="w", pady=(10, 5))
+        self.accuracy_label = tk.Label(controls_frame, text="Accuracy: N/A")
+        self.accuracy_label.pack(anchor="w")
+        self.test_samples_label = tk.Label(controls_frame, text="Test Samples: N/A")
+        self.test_samples_label.pack(anchor="w")
+        self.final_error_label = tk.Label(controls_frame, text="Final Error: N/A")
+        self.final_error_label.pack(anchor="w")
         
         tk.Label(controls_frame, text="").pack() # Spacer
         
@@ -347,8 +356,11 @@ class MultiClassNNGUI:
         else:
              print("Did not converge within max epochs.")
 
-        # Collect results for regression graph
+        # Collect results for regression graph and calculate accuracy
         self.training_results = []
+        correct_count = 0
+        total_samples = len(training_data)
+
         for data in training_data:
             inputs = [self.bias, data['x'], data['y']]
             
@@ -365,9 +377,21 @@ class MultiClassNNGUI:
             # Output Vector o
             o = [1 if n >= 0 else -1 for n in net]
             
+            # Check accuracy (if the max output index matches the label)
+            pred_idx = net.index(max(net))
+            if pred_idx == (data['label'] - 1):
+                correct_count += 1
+
             # Store each class output vs target
             for k in range(self.num_classes):
                 self.training_results.append({'target': d[k], 'output': o[k]})
+
+        accuracy = (correct_count / total_samples) * 100 if total_samples > 0 else 0
+        
+        # Update GUI labels
+        self.accuracy_label.config(text=f"Accuracy: {accuracy:.2f}%")
+        self.test_samples_label.config(text=f"Test Samples: {total_samples}")
+        self.final_error_label.config(text=f"Final Error: {self.errors[-1] if self.errors else 'N/A'}")
 
     def train_continuous(self):
         print("Continuous training (Delta - One vs All) selected")
@@ -438,8 +462,11 @@ class MultiClassNNGUI:
                 print(f"Converged in {epoch+1} epochs. Total Error: {total_error}")
                 break
 
-        # Collect results for regression graph
+        # Collect results for regression graph and calculate accuracy
         self.training_results = []
+        correct_count = 0
+        total_samples = len(training_data)
+
         for data in training_data:
             inputs = [self.bias, data['x'], data['y']]
             
@@ -462,9 +489,21 @@ class MultiClassNNGUI:
                     res = 0 if n < 0 else 1
                 o.append(res)
             
+            # Check accuracy
+            pred_idx = o.index(max(o))
+            if pred_idx == (data['label'] - 1):
+                correct_count += 1
+
             # Store each class output vs target
             for k in range(self.num_classes):
                 self.training_results.append({'target': d[k], 'output': o[k]})
+
+        accuracy = (correct_count / total_samples) * 100 if total_samples > 0 else 0
+        
+        # Update GUI labels
+        self.accuracy_label.config(text=f"Accuracy: {accuracy:.2f}%")
+        self.test_samples_label.config(text=f"Test Samples: {total_samples}")
+        self.final_error_label.config(text=f"Final Error: {self.errors[-1] if self.errors else 'N/A'}")
 
     def show_error_graph(self):
         if not self.errors:
