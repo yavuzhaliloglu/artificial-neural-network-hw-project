@@ -267,6 +267,9 @@ class MultiLayerNNGUI:
         self.min_error_var = tk.DoubleVar(value=0.001)
         tk.Entry(self.common_frame, textvariable=self.min_error_var).pack(anchor="w", pady=(0, 10))
 
+        self.epoch_label = tk.Label(self.common_frame, text="Epoch: 0")
+        self.epoch_label.pack(anchor="w", pady=(0, 5))
+
         tk.Button(self.common_frame, text="Show Error Graph", command=self.show_error_graph).pack(anchor="w", pady=5)
 
         # Results Labels
@@ -374,7 +377,6 @@ class MultiLayerNNGUI:
         process_menu.add_cascade(label="Train", menu=train_menu)
         train_menu.add_command(label="With Momentum", command=self.train_with_momentum)
         train_menu.add_command(label="Without Momentum", command=self.train_without_momentum)
-        process_menu.add_command(label="Test", command=self.test_network)
 
     def initialize_weights(self):
         try:
@@ -479,10 +481,12 @@ class MultiLayerNNGUI:
             
             if epoch % 100 == 0:
                 print(f"Epoch {epoch}, Error: {mse}")
+                self.epoch_label.config(text=f"Epoch: {epoch}")
                 self.root.update()
                 
             if mse < min_error: break
         
+        self.epoch_label.config(text=f"Epoch: {len(self.error_history)}")
         print(f"Final Error: {self.error_history[-1]}")
         
         # Calculate Accuracy / Update UI
@@ -506,10 +510,6 @@ class MultiLayerNNGUI:
     def train_with_momentum(self): self.train(momentum=0.9)
     def train_without_momentum(self): self.train(momentum=0.0)
 
-    def test_network(self):
-        # Simplified test
-        print("Test triggered.")
-
     def show_error_graph(self):
         if not self.error_history: return
         graph_window = tk.Toplevel(self.root)
@@ -517,22 +517,49 @@ class MultiLayerNNGUI:
         graph_window.geometry("600x400")
         canvas = tk.Canvas(graph_window, bg="white")
         canvas.pack(fill=tk.BOTH, expand=True)
-        w, h, padding = 600, 400, 50
+        
+        w, h = 600, 400
+        padding = 50
+        graph_w = w - 2 * padding
+        graph_h = h - 2 * padding
+        
         max_error = max(self.error_history)
         num_epochs = len(self.error_history)
+        if max_error == 0: max_error = 1
         
-        canvas.create_line(padding, h - padding, w - padding, h - padding, arrow=tk.LAST)
-        canvas.create_line(padding, h - padding, padding, padding, arrow=tk.LAST)
+        # Draw axes
+        canvas.create_line(padding, h - padding, w - padding, h - padding, width=2) # X axis
+        canvas.create_line(padding, h - padding, padding, padding, width=2) # Y axis
+        
+        # Labels
+        canvas.create_text(w/2, h - 10, text="Epochs")
+        canvas.create_text(10, h/2, text="Error", angle=90)
+        
+        # Y axis ticks (Error)
+        for i in range(6):
+            y_val = max_error * i / 5
+            y_pos = (h - padding) - (i / 5) * graph_h
+            canvas.create_line(padding - 5, y_pos, padding, y_pos)
+            canvas.create_text(padding - 10, y_pos, text=f"{y_val:.4f}", anchor="e", font=("Arial", 8))
+            
+        # X axis ticks (Epochs)
+        for i in range(6):
+            x_val = num_epochs * i / 5
+            x_pos = padding + (i / 5) * graph_w
+            canvas.create_line(x_pos, h - padding, x_pos, h - padding + 5)
+            canvas.create_text(x_pos, h - padding + 15, text=f"{int(x_val)}", anchor="n", font=("Arial", 8))
         
         if num_epochs < 2: return
-        x_scale = (w - 2 * padding) / (num_epochs - 1)
-        y_scale = (h - 2 * padding) / (max_error if max_error > 0 else 1)
+        
+        x_scale = graph_w / (num_epochs - 1)
+        y_scale = graph_h / max_error
         
         points = []
         for i, error in enumerate(self.error_history):
             x = padding + i * x_scale
-            y = h - padding - error * y_scale
-            points.append((x, y))
+            y = (h - padding) - error * y_scale
+            points.append(x)
+            points.append(y)
         canvas.create_line(points, fill="blue", width=2)
 
     def update_main_classification(self):
