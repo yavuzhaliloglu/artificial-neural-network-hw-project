@@ -15,7 +15,7 @@ def mat_rand(rows, cols):
 def mat_dot(A, B):
     rows_A, cols_A = len(A), len(A[0])
     rows_B, cols_B = len(B), len(B[0])
-    if cols_A != rows_B: raise ValueError("Shape mismatch")
+    if cols_A != rows_B: raise ValueError("Shape mismatch")	
     C = mat_zeros(rows_A, cols_B)
     for i in range(rows_A):
         for j in range(cols_B):
@@ -76,6 +76,8 @@ class MultiLayerPerceptron:
         
         # Initialize weights and biases
         layer_sizes = [input_size] + hidden_layers + [output_size]
+        
+        print("layer sizes:", layer_sizes)
         
         for i in range(len(layer_sizes) - 1):
             rows, cols = layer_sizes[i], layer_sizes[i+1]
@@ -150,12 +152,6 @@ class MultiLayerPerceptron:
                 total_error += val ** 2
                 count += 1
         return total_error / count if count > 0 else 0
-
-@dataclass
-
-class Layer:
-	neurons: int
-	activation: str
 
 @dataclass
 class Point:
